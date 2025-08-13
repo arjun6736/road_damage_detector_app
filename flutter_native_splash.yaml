@@ -1,0 +1,8 @@
+flutter_native_splash:
+  color: "#1E88E5"                 # Background color
+  image: assets/images/road.jpg   # Splash image
+  android: true
+  android_12:
+    image: assets/images/road.jpg
+    color: "#ffffff"
+    color_dark: "#042a49"   
