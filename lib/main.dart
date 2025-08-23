@@ -1,13 +1,19 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 // ignore: depend_on_referenced_packages
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:routefixer/app_theme.dart';
 import 'package:routefixer/routes.dart';
+// import 'firebase_options.dart';
 // import 'package:routefixer/screens/splashscreen.dart';
 
-void main() {
+void main() async {
   WidgetsBinding binding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: binding);
+  WidgetsFlutterBinding.ensureInitialized(); //firebase
+  await Firebase.initializeApp(
+    // options: DefaultFirebaseOptions.currentPlatform,
+  ); //firebase
   runApp(const MyApp());
 }
 

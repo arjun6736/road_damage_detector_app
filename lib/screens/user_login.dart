@@ -1,8 +1,12 @@
+// ignore_for_file: use_build_context_synchronously
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:routefixer/constants.dart';
 import 'package:routefixer/widgets/app_button.dart';
 import 'package:routefixer/widgets/app_inputfield.dart';
+import '../services/auth_service.dart';
 
 class UserLogin extends StatefulWidget {
   const UserLogin({super.key});
@@ -12,9 +16,36 @@ class UserLogin extends StatefulWidget {
 }
 
 class _UserLoginState extends State<UserLogin> {
+  final AuthService _authService = AuthService();
   final _formkey = GlobalKey<FormState>();
   final TextEditingController _emailcontroller = TextEditingController();
   final TextEditingController _passwordcontroller = TextEditingController();
+
+  Future<void> _login() async {
+    String email = _emailcontroller.text.trim();
+    String password = _passwordcontroller.text.trim();
+    try {
+      User? user = await _authService.signin(email, password);
+      if (user != null) {
+        debugPrint("User logged in successfully: ${user.email}");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully logged in!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        context.goNamed('home');
+      }
+    } catch (e) {
+      debugPrint("Login failed: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Incorrect Username or Password"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,10 +74,9 @@ class _UserLoginState extends State<UserLogin> {
                     child: Form(
                       key: _formkey,
                       child: Column(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center, // Center vertically
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
+                          const Text(
                             'Login',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
@@ -54,7 +84,7 @@ class _UserLoginState extends State<UserLogin> {
                               fontSize: 36,
                             ),
                           ),
-                          SizedBox(height: 30),
+                          const SizedBox(height: 30),
                           AppInputField(
                             label: "email",
                             controller: _emailcontroller,
@@ -68,7 +98,7 @@ class _UserLoginState extends State<UserLogin> {
                               return null;
                             },
                           ),
-                          SizedBox(height: 20),
+                          const SizedBox(height: 20),
                           AppInputField(
                             label: 'password',
                             controller: _passwordcontroller,
@@ -83,11 +113,26 @@ class _UserLoginState extends State<UserLogin> {
                               return null;
                             },
                           ),
+                          TextButton(
+                            onPressed: () {
+                              context.goNamed('reset-password');
+                            },
+                            child: const Text(
+                              'Forgot Password?',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                           const SizedBox(height: 20),
                           AppElevatedButton(
                             onPressed: () {
                               if (_formkey.currentState!.validate()) {
-                                // Proceed with login
+                                debugPrint(
+                                  "Form is valid, proceeding to login",
+                                );
+                                _login();
                               } else {
                                 debugPrint("Form is not valid");
                               }
@@ -105,9 +150,8 @@ class _UserLoginState extends State<UserLogin> {
                           ),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-
                             children: [
-                              Text(
+                              const Text(
                                 "Don't have an account?",
                                 style: TextStyle(fontSize: 16),
                               ),

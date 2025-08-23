@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 import 'package:routefixer/screens/home.dart';
+import 'package:routefixer/screens/resetpassword.dart';
 import 'package:routefixer/screens/user_login.dart';
 import 'package:routefixer/screens/user_signup.dart';
 import 'screens/splashscreen.dart';
@@ -34,6 +35,11 @@ final GoRouter router = GoRouter(
       path: '/signup',
       name: 'signup',
       builder: (context, state) => const UserSignup(),
+    ),
+    GoRoute(
+      path: '/reset-password',
+      name: 'reset-password',
+      builder: (context, state) => const ResetPasswordPage(),
     ),
   ],
 );
