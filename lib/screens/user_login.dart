@@ -34,7 +34,7 @@ class _UserLoginState extends State<UserLogin> {
             backgroundColor: Colors.green,
           ),
         );
-        context.goNamed('home');
+        context.goNamed('mianpage');
       }
     } catch (e) {
       debugPrint("Login failed: $e");

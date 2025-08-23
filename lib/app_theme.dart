@@ -48,6 +48,22 @@ class AppTheme {
           borderSide: const BorderSide(color: AppColors.primary, width: 2),
         ),
       ),
+
+      // Bottom Navigation Bar Theme
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: Colors.white, // nav bar background
+        selectedItemColor: AppColors.primary, // active icon/text
+        unselectedItemColor: Colors.grey, // inactive icons
+        selectedLabelStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelStyle: TextStyle(fontSize: 12),
+        type: BottomNavigationBarType.fixed, // prevents shifting
+        elevation: 10, // shadow
+        selectedIconTheme: IconThemeData(size: 30), // bigger selected
+        unselectedIconTheme: IconThemeData(size: 26),
+      ),
     );
   }
 }

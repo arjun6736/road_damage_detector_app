@@ -36,7 +36,7 @@ class _UserSignupState extends State<UserSignup> {
             backgroundColor: Colors.green,
           ),
         );
-        context.goNamed('home');
+        context.goNamed('mainpage');
       }
     } catch (e) {
       debugPrint("Sign up failed: $e");

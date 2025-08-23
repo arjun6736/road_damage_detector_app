@@ -31,7 +31,7 @@ class _SplashScreenState extends State<SplashScreen> {
     // Navigate based on user state
     if (!mounted) return;
     if (user != null) {
-      context.goNamed('home');
+      context.goNamed('mainpage');
     } else {
       context.goNamed('intro');
     }
