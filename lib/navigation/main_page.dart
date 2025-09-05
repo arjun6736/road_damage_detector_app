@@ -21,6 +21,7 @@ class _MainPageState extends State<MainPage> {
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
+        elevation: 18,
         currentIndex: _currentIndex,
         onTap: (index) {
           setState(() {

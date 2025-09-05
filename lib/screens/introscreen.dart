@@ -80,7 +80,9 @@ class IntroScreen extends StatelessWidget {
                     children: [
                       Text('Administrative login?'),
                       TextButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          context.goNamed('admin_login');
+                        },
                         child: const Text(
                           'Click here',
                           style: TextStyle(color: AppColors.primary),

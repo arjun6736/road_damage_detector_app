@@ -10,6 +10,7 @@ class AppInputField extends StatefulWidget {
   final IconData? prefixIcon;
   final String? Function(String?)? validator;
   final ValueChanged<String>? onChanged;
+  final int maxlines;
 
   const AppInputField({
     super.key,
@@ -21,6 +22,7 @@ class AppInputField extends StatefulWidget {
     this.validator,
     this.onChanged,
     this.errorText,
+    this.maxlines = 1,
   });
 
   @override
@@ -38,6 +40,7 @@ class _AppInputFieldState extends State<AppInputField> {
       keyboardType: widget.keyboardType,
       obscureText: widget.isPassword ? _obscureText : false,
       validator: widget.validator,
+      maxLines: widget.maxlines,
       decoration: InputDecoration(
         labelText: widget.label,
         errorText: widget.errorText,
