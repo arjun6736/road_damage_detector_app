@@ -8,7 +8,7 @@ class Repoartscreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Reports')),
+      appBar: AppBar(title: const Text('Reports'), centerTitle: true),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(15), // 20 margin around

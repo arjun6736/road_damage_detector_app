@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:routefixer/screens/home.dart';
+import 'package:routefixer/screens/notificationscreen.dart';
+import 'package:routefixer/screens/profilescreen.dart';
 import 'package:routefixer/screens/repoartscreen.dart';
 
 class MainPage extends StatefulWidget {
@@ -16,7 +18,12 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> _screens = const [Home(), Repoartscreen()];
+    final List<Widget> _screens = const [
+      Home(),
+      Repoartscreen(),
+      NotificationsPage(),
+      ProfilePage(),
+    ];
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: _screens),
@@ -31,6 +38,11 @@ class _MainPageState extends State<MainPage> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.report), label: 'Reports'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.notifications),
+            label: 'Notifications',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );

@@ -22,19 +22,10 @@ class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Home'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-            tooltip: 'Logout',
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Map view'), centerTitle: true),
       body: const Center(
         child: Text(
-          'Welcome to RouteFixer',
+          'Map view placeholder',
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
         ),
       ),
