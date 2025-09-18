@@ -195,7 +195,7 @@ class _NotificationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final surface = theme.colorScheme.surface;
+    final surface = Colors.white;
     final onSurface = theme.colorScheme.onSurface;
 
     return InkWell(

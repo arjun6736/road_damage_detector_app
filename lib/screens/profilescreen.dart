@@ -18,6 +18,7 @@ class ProfilePage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          SizedBox(height: 20),
           // Profile Header
           Column(
             children: [
