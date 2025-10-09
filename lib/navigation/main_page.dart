@@ -6,8 +6,14 @@ import 'package:routefixer/screens/notificationscreen.dart';
 import 'package:routefixer/screens/profilescreen.dart';
 import 'package:routefixer/screens/repoartscreen.dart';
 
+// Camara Service
+import 'package:camera/camera.dart';
+import 'package:routefixer/services/cameraservice.dart';
+//end of Camara Service
+
 class MainPage extends StatefulWidget {
-  const MainPage({super.key});
+  final List<CameraDescription> cameras;
+  const MainPage({super.key, required this.cameras});
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -15,6 +21,15 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _currentIndex = 0;
+  // ignore: unused_field
+  late Future<void> _cameraInitFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Start camera initialization in background
+    _cameraInitFuture = CameraService().init(widget.cameras.first);
+  }
 
   @override
   Widget build(BuildContext context) {

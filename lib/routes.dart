@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:go_router/go_router.dart';
+import 'package:routefixer/main.dart';
 import 'package:routefixer/navigation/main_page.dart';
 import 'package:routefixer/screens/add_details_cap.dart';
 import 'package:routefixer/screens/admin_login.dart';
@@ -33,7 +34,7 @@ final GoRouter router = GoRouter(
     GoRoute(
       path: '/mainpage',
       name: 'mainpage',
-      builder: (context, state) => const MainPage(),
+      builder: (context, state) => MainPage(cameras: cameras!),
     ),
     GoRoute(
       path: '/signup',
@@ -54,8 +55,8 @@ final GoRouter router = GoRouter(
       path: '/capture',
       name: 'capture',
       builder: (context, state) {
-        final camera = state.extra as CameraDescription;
-        return CapturePage(camera: camera);
+        final controller = state.extra as CameraController;
+        return CapturePage(controller: controller);
       },
     ),
     GoRoute(

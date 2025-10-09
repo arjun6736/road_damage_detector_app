@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:routefixer/main.dart';
+import 'package:routefixer/services/cameraservice.dart';
+import 'package:routefixer/services/capturescreen.dart';
 
 class Repoartscreen extends StatelessWidget {
   const Repoartscreen({super.key});
@@ -166,7 +168,14 @@ class Repoartscreen extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          context.pushNamed('capture', extra: cameras![0]);
+          final controller = CameraService().controller;
+          if (controller != null && controller.value.isInitialized) {
+            context.push('/capture', extra: controller);
+          } else {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text("Camera not ready")));
+          }
         },
         backgroundColor: Colors.white,
         child: const Icon(Icons.add, color: Colors.black),

@@ -7,41 +7,27 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 class CapturePage extends StatefulWidget {
-  final CameraDescription camera;
-  const CapturePage({super.key, required this.camera});
+  final CameraController controller; // ✅ Use pre-initialized controller
+  const CapturePage({super.key, required this.controller});
 
   @override
   State<CapturePage> createState() => _CapturePageState();
 }
 
 class _CapturePageState extends State<CapturePage> {
-  late CameraController _controller;
-  late Future<void> _initializeControllerFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = CameraController(widget.camera, ResolutionPreset.medium);
-    _initializeControllerFuture = _controller.initialize().catchError((e) {
-      debugPrint("Camera init error: $e");
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  bool _isTakingPicture = false; // ✅ Prevent multi-clicks
 
   Future<void> _takePicture() async {
+    if (_isTakingPicture) return; // block multiple clicks
+    _isTakingPicture = true;
+    setState(() {});
+
     try {
-      // Check location permission before taking picture
+      // Check location permission
       if (!await _handleLocationPermission(context)) return;
 
-      await _initializeControllerFuture;
-
-      // Take picture
-      final picture = await _controller.takePicture();
+      // Take picture directly (no need to re-init)
+      final picture = await widget.controller.takePicture();
 
       // Ensure location service is enabled
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -54,13 +40,13 @@ class _CapturePageState extends State<CapturePage> {
         return;
       }
 
-      // Get GPS + Time
+      // Get GPS + timestamp
       final pos = await Geolocator.getCurrentPosition();
       final timestamp = DateTime.now().toIso8601String();
 
       if (!mounted) return;
 
-      // Navigate to next page with captured data
+      // Navigate with captured data
       context.pushNamed(
         'addDetails',
         extra: {
@@ -76,6 +62,9 @@ class _CapturePageState extends State<CapturePage> {
           context,
         ).showSnackBar(SnackBar(content: Text("Failed to capture photo: $e")));
       }
+    } finally {
+      _isTakingPicture = false; // reset after capture
+      if (mounted) setState(() {});
     }
   }
 
@@ -83,21 +72,14 @@ class _CapturePageState extends State<CapturePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Capture Photo")),
-      body: FutureBuilder<void>(
-        future: _initializeControllerFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            return CameraPreview(_controller);
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Camera error: ${snapshot.error}'));
-          } else {
-            return const Center(child: CircularProgressIndicator());
-          }
-        },
-      ),
+      body: CameraPreview(widget.controller), // ✅ Instant preview
       floatingActionButton: FloatingActionButton(
-        onPressed: _takePicture,
-        child: const Icon(Icons.camera),
+        onPressed: _isTakingPicture
+            ? null
+            : _takePicture, // ✅ Disable during capture
+        child: _isTakingPicture
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Icon(Icons.camera),
       ),
     );
   }
