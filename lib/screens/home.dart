@@ -10,27 +10,72 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  // ignore: unused_field
-  GoogleMapController? _controller;
+  static const LatLng _kGlobalCenter = LatLng(0, 0);
+  static const double _kGlobalZoom = 2;
+  static const double _kUserZoom = 16;
+
+  GoogleMapController? _mapController;
   LatLng? _currentPosition;
-  // final String _mapId = "b263846990dedbfd799c811b"; // Replace with your Map ID
+  bool _permissionGranted = false;
+  bool _serviceEnabled = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _checkGpsInBackground();
+    _initLocationAndMap();
   }
 
-  Future<void> _checkGpsInBackground() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  @override
+  void dispose() {
+    _mapController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initLocationAndMap() async {
+    try {
+      _serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      final granted = await _handleLocationPermission();
+      if (!mounted) return;
+
+      setState(() {
+        _permissionGranted = granted;
+      });
+
+      if (granted && _serviceEnabled) {
+        final pos = await Geolocator.getCurrentPosition(
+          // ignore: deprecated_member_use
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        if (!mounted) return;
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+        });
+
+        // If map already created, animate
+        if (_mapController != null) {
+          _animateTo(_currentPosition!, zoom: _kUserZoom);
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
+  Future<bool> _handleLocationPermission() async {
+    // Check services
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("GPS is OFF. Please enable it.")),
+          const SnackBar(
+            content: Text('Location services are disabled. Please enable GPS.'),
+          ),
         );
       }
-      await Geolocator.openLocationSettings();
-      return;
+      return false;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -38,45 +83,83 @@ class _HomeState extends State<Home> {
       permission = await Geolocator.requestPermission();
     }
 
-    if (permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse) {
-      Position position = await Geolocator.getCurrentPosition(
-        // ignore: deprecated_member_use
-        desiredAccuracy: LocationAccuracy.high,
+    if (permission == LocationPermission.denied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission denied')),
+        );
+      }
+      return false;
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permissions are permanently denied. Open settings to enable.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _animateTo(LatLng target, {double zoom = _kUserZoom}) async {
+    try {
+      await _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: target, zoom: zoom),
+        ),
       );
-      setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
-      });
+    } catch (_) {
+      // ignore animation errors
     }
   }
 
-  void _setMapStyle(GoogleMapController controller) async {
-    String style = await DefaultAssetBundle.of(
-      context,
-    ).loadString("assets/map_style.json");
-    // ignore: deprecated_member_use
-    controller.setMapStyle(style);
+  void _onMapCreated(GoogleMapController controller) {
+    _mapController = controller;
+    if (_currentPosition != null) {
+      _animateTo(_currentPosition!, zoom: _kUserZoom);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final initialTarget = _currentPosition ?? _kGlobalCenter;
+    final initialZoom = _currentPosition == null ? _kGlobalZoom : _kUserZoom;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Map view'), centerTitle: true),
-      body: _currentPosition == null
-          ? const Center(child: CircularProgressIndicator())
+      body: _error != null
+          ? Center(child: Text('Error: $_error'))
           : GoogleMap(
               initialCameraPosition: CameraPosition(
-                target: _currentPosition!,
-                zoom: 16,
+                target: initialTarget,
+                zoom: initialZoom,
               ),
-              myLocationEnabled: true,
-              myLocationButtonEnabled: true,
+              myLocationEnabled: _permissionGranted,
+              myLocationButtonEnabled: false,
               zoomControlsEnabled: true,
-              onMapCreated: (GoogleMapController controller) {
-                _controller = controller;
-                _setMapStyle(controller);
-              },
+              onMapCreated: _onMapCreated,
             ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          if (_currentPosition != null) {
+            _animateTo(_currentPosition!);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Waiting for location...')),
+            );
+            // attempt to fetch location again
+            _initLocationAndMap();
+          }
+        },
+        child: const Icon(Icons.my_location),
+      ),
     );
   }
 }
