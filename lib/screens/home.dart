@@ -45,7 +45,6 @@ class _HomeState extends State<Home> {
 
       if (granted && _serviceEnabled) {
         final pos = await Geolocator.getCurrentPosition(
-          // ignore: deprecated_member_use
           desiredAccuracy: LocationAccuracy.high,
         );
         if (!mounted) return;
@@ -53,7 +52,6 @@ class _HomeState extends State<Home> {
           _currentPosition = LatLng(pos.latitude, pos.longitude);
         });
 
-        // If map already created, animate
         if (_mapController != null) {
           _animateTo(_currentPosition!, zoom: _kUserZoom);
         }
@@ -65,7 +63,6 @@ class _HomeState extends State<Home> {
   }
 
   Future<bool> _handleLocationPermission() async {
-    // Check services
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
@@ -115,9 +112,7 @@ class _HomeState extends State<Home> {
           CameraPosition(target: target, zoom: zoom),
         ),
       );
-    } catch (_) {
-      // ignore animation errors
-    }
+    } catch (_) {}
   }
 
   void _onMapCreated(GoogleMapController controller) {
@@ -133,33 +128,46 @@ class _HomeState extends State<Home> {
     final initialZoom = _currentPosition == null ? _kGlobalZoom : _kUserZoom;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Map view'), centerTitle: true),
+      // ✅ Removed AppBar to make map fullscreen
       body: _error != null
           ? Center(child: Text('Error: $_error'))
-          : GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: initialTarget,
-                zoom: initialZoom,
-              ),
-              myLocationEnabled: _permissionGranted,
-              myLocationButtonEnabled: false,
-              zoomControlsEnabled: true,
-              onMapCreated: _onMapCreated,
+          : Stack(
+              children: [
+                // 🗺️ Full-screen map
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: initialTarget,
+                    zoom: initialZoom,
+                  ),
+                  myLocationEnabled: _permissionGranted,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false, // ✅ Removed zoom buttons
+                  onMapCreated: _onMapCreated,
+                ),
+
+                // 📍 My location button (floating bottom right)
+                Positioned(
+                  bottom: 30,
+                  right: 15,
+                  child: FloatingActionButton(
+                    onPressed: () {
+                      if (_currentPosition != null) {
+                        _animateTo(_currentPosition!);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Waiting for location...'),
+                          ),
+                        );
+                        _initLocationAndMap();
+                      }
+                    },
+                    backgroundColor: Colors.white,
+                    child: const Icon(Icons.my_location, color: Colors.blue),
+                  ),
+                ),
+              ],
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (_currentPosition != null) {
-            _animateTo(_currentPosition!);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Waiting for location...')),
-            );
-            // attempt to fetch location again
-            _initLocationAndMap();
-          }
-        },
-        child: const Icon(Icons.my_location),
-      ),
     );
   }
 }
