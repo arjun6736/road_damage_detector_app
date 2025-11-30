@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:location/location.dart' hide LocationAccuracy;
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -10,9 +13,12 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  static const LatLng _kGlobalCenter = LatLng(0, 0);
-  static const double _kGlobalZoom = 2;
+  // Kozhikode (Calicut), Kerala as default center
+  static const LatLng _kDefaultCenter = LatLng(11.2588, 75.7804);
+  static const double _kDefaultZoom = 2;
   static const double _kUserZoom = 16;
+
+  final Location _locationService = Location();
 
   GoogleMapController? _mapController;
   LatLng? _currentPosition;
@@ -32,10 +38,25 @@ class _HomeState extends State<Home> {
     super.dispose();
   }
 
+  // Initialize: if GPS enabled -> request permission & get location.
+  // If GPS disabled -> leave default center (no prompt here).
   Future<void> _initLocationAndMap() async {
     try {
-      _serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      // Check service (do not force-enable here)
+      _serviceEnabled = await _locationService.serviceEnabled();
 
+      if (!_serviceEnabled) {
+        // keep default map center, no prompt at app start
+        if (mounted) {
+          setState(() {
+            _permissionGranted = false;
+            _currentPosition = null;
+          });
+        }
+        return;
+      }
+
+      // Service enabled -> check permission
       final granted = await _handleLocationPermission();
       if (!mounted) return;
 
@@ -45,6 +66,7 @@ class _HomeState extends State<Home> {
 
       if (granted && _serviceEnabled) {
         final pos = await Geolocator.getCurrentPosition(
+          // ignore: deprecated_member_use
           desiredAccuracy: LocationAccuracy.high,
         );
         if (!mounted) return;
@@ -62,19 +84,8 @@ class _HomeState extends State<Home> {
     }
   }
 
+  // Use Geolocator for permission request (keeps previous logic)
   Future<bool> _handleLocationPermission() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location services are disabled. Please enable GPS.'),
-          ),
-        );
-      }
-      return false;
-    }
-
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -117,51 +128,80 @@ class _HomeState extends State<Home> {
 
   void _onMapCreated(GoogleMapController controller) {
     _mapController = controller;
+    // if we already have user location, animate to it
     if (_currentPosition != null) {
       _animateTo(_currentPosition!, zoom: _kUserZoom);
     }
   }
 
+  // Called when user taps the my-location button
+  Future<void> _onMyLocationPressed() async {
+    // If service already enabled and permission granted -> animate to current position
+    if (_serviceEnabled && _permissionGranted && _currentPosition != null) {
+      _animateTo(_currentPosition!, zoom: _kUserZoom);
+      return;
+    }
+
+    // Otherwise show native enable-GPS dialog
+    try {
+      bool enabled = await _locationService
+          .requestService(); // shows native dialog on Android
+      if (!enabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('GPS not enabled')));
+        }
+        return;
+      }
+
+      // If user enabled GPS, re-init permissions and fetch location
+      await _initLocationAndMap();
+
+      if (_currentPosition != null) {
+        _animateTo(_currentPosition!, zoom: _kUserZoom);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not get location')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error enabling GPS: $e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final initialTarget = _currentPosition ?? _kGlobalCenter;
-    final initialZoom = _currentPosition == null ? _kGlobalZoom : _kUserZoom;
+    final initialTarget = _currentPosition ?? _kDefaultCenter;
+    final initialZoom = _currentPosition == null ? _kDefaultZoom : _kUserZoom;
 
     return Scaffold(
-      // ✅ Removed AppBar to make map fullscreen
       body: _error != null
           ? Center(child: Text('Error: $_error'))
           : Stack(
               children: [
-                // 🗺️ Full-screen map
                 GoogleMap(
+                  mapType: MapType.satellite,
                   initialCameraPosition: CameraPosition(
                     target: initialTarget,
                     zoom: initialZoom,
                   ),
                   myLocationEnabled: _permissionGranted,
                   myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false, // ✅ Removed zoom buttons
+                  zoomControlsEnabled: false,
                   onMapCreated: _onMapCreated,
                 ),
-
-                // 📍 My location button (floating bottom right)
                 Positioned(
                   bottom: 30,
                   right: 15,
                   child: FloatingActionButton(
-                    onPressed: () {
-                      if (_currentPosition != null) {
-                        _animateTo(_currentPosition!);
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Waiting for location...'),
-                          ),
-                        );
-                        _initLocationAndMap();
-                      }
-                    },
+                    onPressed: _onMyLocationPressed,
                     backgroundColor: Colors.white,
                     child: const Icon(Icons.my_location, color: Colors.blue),
                   ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:location/location.dart'; // <-- added to show native enable-GPS dialog
 
 class CapturePage extends StatefulWidget {
   final CameraController controller; // ✅ Use pre-initialized controller
@@ -23,22 +24,12 @@ class _CapturePageState extends State<CapturePage> {
     setState(() {});
 
     try {
-      // Check location permission
-      if (!await _handleLocationPermission(context)) return;
+      // Check location permission & ensure service enabled (will show dialog)
+      final ok = await _handleLocationPermission(context);
+      if (!ok) return;
 
       // Take picture directly (no need to re-init)
       final picture = await widget.controller.takePicture();
-
-      // Ensure location service is enabled
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Enable GPS to capture location")),
-          );
-        }
-        return;
-      }
 
       // Get GPS + timestamp
       final pos = await Geolocator.getCurrentPosition();
@@ -86,24 +77,48 @@ class _CapturePageState extends State<CapturePage> {
 }
 
 Future<bool> _handleLocationPermission(BuildContext context) async {
-  bool serviceEnabled;
-  LocationPermission permission;
+  final Location location = Location();
 
-  // Check if location services are enabled
-  serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  // Check if location services are enabled; if not, request service (shows native dialog)
+  bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Location services are disabled. Please enable the services',
+    try {
+      final requested = await location.requestService();
+      if (!requested) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location services are disabled. Please enable the services',
+            ),
+          ),
+        );
+        return false;
+      }
+      // re-check serviceEnabled after requestService
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location services are disabled. Please enable the services',
+            ),
+          ),
+        );
+        return false;
+      }
+    } catch (e) {
+      debugPrint('requestService error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to request enabling location services'),
         ),
-      ),
-    );
-    return false;
+      );
+      return false;
+    }
   }
 
   // Check permission
-  permission = await Geolocator.checkPermission();
+  LocationPermission permission = await Geolocator.checkPermission();
   if (permission == LocationPermission.denied) {
     permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied) {
