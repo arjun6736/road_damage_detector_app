@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:routefixer/main.dart';
 import 'package:routefixer/navigation/main_page.dart';
@@ -68,6 +69,7 @@ final GoRouter router = GoRouter(
           imageFile: args['imageFile'],
           gps: args['gps'],
           time: args['time'],
+          firebaseUid: FirebaseAuth.instance.currentUser!.uid,
         );
       },
     ),
