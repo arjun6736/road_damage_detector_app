@@ -1,142 +1,122 @@
 // ignore_for_file: use_build_context_synchronously
-
 import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:location/location.dart'; // <-- added to show native enable-GPS dialog
+import 'package:location/location.dart';
+import '../services/cameraservice.dart';
 
 class CapturePage extends StatefulWidget {
-  final CameraController controller; // ✅ Use pre-initialized controller
-  const CapturePage({super.key, required this.controller});
+  final CameraDescription camera;
+  const CapturePage({super.key, required this.camera});
 
   @override
   State<CapturePage> createState() => _CapturePageState();
 }
 
 class _CapturePageState extends State<CapturePage> {
-  bool _isTakingPicture = false; // ✅ Prevent multi-clicks
+  CameraController? controller;
+  bool loading = true;
+  bool takingPicture = false;
 
-  Future<void> _takePicture() async {
-    if (_isTakingPicture) return; // block multiple clicks
-    _isTakingPicture = true;
-    setState(() {});
+  @override
+  void initState() {
+    super.initState();
+    _initCamera();
+  }
 
+  Future<void> _initCamera() async {
     try {
-      // Check location permission & ensure service enabled (will show dialog)
-      final ok = await _handleLocationPermission(context);
-      if (!ok) return;
-
-      // Take picture directly (no need to re-init)
-      final picture = await widget.controller.takePicture();
-
-      // Get GPS + timestamp
-      final pos = await Geolocator.getCurrentPosition();
-      final timestamp = DateTime.now().toIso8601String();
-
-      if (!mounted) return;
-
-      // Navigate with captured data
-      context.pushNamed(
-        'addDetails',
-        extra: {
-          'imageFile': File(picture.path),
-          'gps': "${pos.latitude}, ${pos.longitude}",
-          'time': timestamp,
-        },
-      );
+      await CameraService().init(widget.camera);
+      controller = CameraService().controller;
+      if (mounted) setState(() => loading = false);
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Camera init failed: $e");
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text("Failed to capture photo: $e")));
+        ).showSnackBar(SnackBar(content: Text("Camera error: $e")));
       }
-    } finally {
-      _isTakingPicture = false; // reset after capture
-      if (mounted) setState(() {});
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Capture Photo")),
-      body: CameraPreview(widget.controller), // ✅ Instant preview
-      floatingActionButton: FloatingActionButton(
-        onPressed: _isTakingPicture
-            ? null
-            : _takePicture, // ✅ Disable during capture
-        child: _isTakingPicture
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Icon(Icons.camera),
-      ),
-    );
+  void dispose() {
+    CameraService().dispose();
+    super.dispose();
   }
-}
 
-Future<bool> _handleLocationPermission(BuildContext context) async {
-  final Location location = Location();
+  Future<void> _capture() async {
+    if (takingPicture) return;
+    takingPicture = true;
+    setState(() {});
 
-  // Check if location services are enabled; if not, request service (shows native dialog)
-  bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-  if (!serviceEnabled) {
     try {
-      final requested = await location.requestService();
-      if (!requested) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location services are disabled. Please enable the services',
-            ),
-          ),
-        );
-        return false;
-      }
-      // re-check serviceEnabled after requestService
-      serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location services are disabled. Please enable the services',
-            ),
-          ),
-        );
-        return false;
-      }
+      // Location permission
+      if (!await _checkGPS()) return;
+
+      final picture = await controller!.takePicture();
+      final pos = await Geolocator.getCurrentPosition();
+      final time = DateTime.now().toIso8601String();
+
+      context.pushNamed(
+        'addDetails',
+        extra: {
+          "imageFile": File(picture.path),
+          "gps": "${pos.latitude}, ${pos.longitude}",
+          "time": time,
+        },
+      );
     } catch (e) {
-      debugPrint('requestService error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to request enabling location services'),
-        ),
-      );
-      return false;
+      debugPrint("Capture error: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      takingPicture = false;
+      if (mounted) setState(() {});
     }
   }
 
-  // Check permission
-  LocationPermission permission = await Geolocator.checkPermission();
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permissions are denied')),
-      );
-      return false;
+  Future<bool> _checkGPS() async {
+    Location location = Location();
+
+    bool enabled = await Geolocator.isLocationServiceEnabled();
+    if (!enabled) {
+      final req = await location.requestService();
+      if (!req) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Enable GPS to continue")));
+        return false;
+      }
     }
+
+    LocationPermission perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied) return false;
+    }
+    if (perm == LocationPermission.deniedForever) return false;
+
+    return true;
   }
 
-  if (permission == LocationPermission.deniedForever) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Location permissions are permanently denied.'),
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    return Scaffold(
+      body: CameraPreview(controller!),
+      floatingActionButton: FloatingActionButton(
+        onPressed: takingPicture ? null : _capture,
+        child: takingPicture
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Icon(Icons.camera_alt),
       ),
     );
-    return false;
   }
-
-  return true;
 }

@@ -235,13 +235,14 @@ class _RepoartscreenState extends State<Repoartscreen> {
 
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          final controller = CameraService().controller;
-          if (controller != null && controller.value.isInitialized) {
-            context.push('/capture', extra: controller);
+          final cams = CameraService().availableCameras;
+
+          if (cams != null && cams.isNotEmpty) {
+            context.pushNamed("capture", extra: cams.first); // pass camera only
           } else {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text("Camera not ready")));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Camera not available")),
+            );
           }
         },
         backgroundColor: Colors.white,

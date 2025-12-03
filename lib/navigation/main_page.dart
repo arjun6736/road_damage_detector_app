@@ -8,7 +8,7 @@ import 'package:routefixer/screens/repoartscreen.dart';
 
 // Camara Service
 import 'package:camera/camera.dart';
-import 'package:routefixer/services/cameraservice.dart';
+// import 'package:routefixer/services/cameraservice.dart';
 //end of Camara Service
 
 class MainPage extends StatefulWidget {
@@ -21,35 +21,22 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _currentIndex = 0;
-  // ignore: unused_field
-  late Future<void> _cameraInitFuture;
 
-  @override
-  void initState() {
-    super.initState();
-    // Start camera initialization in background
-    _cameraInitFuture = CameraService().init(widget.cameras.first);
-  }
+  final List<Widget> _screens = const [
+    Home(),
+    Repoartscreen(),
+    NotificationsPage(),
+    ProfilePage(),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> _screens = const [
-      Home(),
-      Repoartscreen(),
-      NotificationsPage(),
-      ProfilePage(),
-    ];
-
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         elevation: 18,
         currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onTap: (i) => setState(() => _currentIndex = i),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.report), label: 'Reports'),

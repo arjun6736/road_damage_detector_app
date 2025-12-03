@@ -33,11 +33,6 @@ final GoRouter router = GoRouter(
       builder: (context, state) => const UserLogin(),
     ),
     GoRoute(
-      path: '/mainpage',
-      name: 'mainpage',
-      builder: (context, state) => MainPage(cameras: cameras!),
-    ),
-    GoRoute(
       path: '/signup',
       name: 'signup',
       builder: (context, state) => const UserSignup(),
@@ -52,14 +47,31 @@ final GoRouter router = GoRouter(
       name: 'admin_login',
       builder: (context, state) => const AdminLogin(),
     ),
+
+    // ======================
+    //   MAINPAGE (No camera)
+    // ======================
+    GoRoute(
+      path: '/mainpage',
+      name: 'mainpage',
+      builder: (context, state) => MainPage(cameras: cameras!),
+    ),
+
+    // ======================
+    //   CAPTURE PAGE (camera)
+    // ======================
     GoRoute(
       path: '/capture',
       name: 'capture',
       builder: (context, state) {
-        final controller = state.extra as CameraController;
-        return CapturePage(controller: controller);
+        final cam = state.extra as CameraDescription;
+        return CapturePage(camera: cam);
       },
     ),
+
+    // ======================
+    //  ADD DETAILS
+    // ======================
     GoRoute(
       path: '/add-details',
       name: 'addDetails',

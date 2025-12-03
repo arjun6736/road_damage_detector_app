@@ -5,6 +5,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:camera/camera.dart';
 import 'package:routefixer/app_theme.dart';
 import 'package:routefixer/routes.dart';
+import 'package:routefixer/services/cameraservice.dart';
 
 List<CameraDescription>? cameras; // global list of cameras
 
@@ -17,7 +18,7 @@ Future<void> main() async {
 
   // Initialize cameras
   cameras = await availableCameras();
-
+  CameraService().setCameras(cameras!);
   runApp(const MyApp());
 }
 

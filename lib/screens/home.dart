@@ -1,9 +1,7 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:location/location.dart' hide LocationAccuracy;
+import 'package:geolocator/geolocator.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -13,23 +11,22 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  // Kozhikode (Calicut), Kerala as default center
-  static const LatLng _kDefaultCenter = LatLng(11.2588, 75.7804);
-  static const double _kDefaultZoom = 2;
-  static const double _kUserZoom = 16;
-
-  final Location _locationService = Location();
+  static const LatLng _kKozhikode = LatLng(11.2588, 75.7804);
+  static const double _defaultZoom = 13;
+  static const double _userZoom = 16;
 
   GoogleMapController? _mapController;
   LatLng? _currentPosition;
+
+  bool _locationLoaded = false;
   bool _permissionGranted = false;
-  bool _serviceEnabled = true;
-  String? _error;
+  bool _mapReady = false;
+  bool _animationDone = false; // Prevent duplicate animations
 
   @override
   void initState() {
     super.initState();
-    _initLocationAndMap();
+    _initLocation();
   }
 
   @override
@@ -38,176 +35,138 @@ class _HomeState extends State<Home> {
     super.dispose();
   }
 
-  // Initialize: if GPS enabled -> request permission & get location.
-  // If GPS disabled -> leave default center (no prompt here).
-  Future<void> _initLocationAndMap() async {
+  // -------------------------
+  // FAST LOCATION INITIALIZER
+  // -------------------------
+  Future<void> _initLocation() async {
     try {
-      // Check service (do not force-enable here)
-      _serviceEnabled = await _locationService.serviceEnabled();
+      // 1. Check permission
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
 
-      if (!_serviceEnabled) {
-        // keep default map center, no prompt at app start
+      if (perm == LocationPermission.deniedForever) {
         if (mounted) {
-          setState(() {
-            _permissionGranted = false;
-            _currentPosition = null;
-          });
+          setState(() => _permissionGranted = false);
         }
         return;
       }
 
-      // Service enabled -> check permission
-      final granted = await _handleLocationPermission();
-      if (!mounted) return;
+      _permissionGranted = true;
 
-      setState(() {
-        _permissionGranted = granted;
-      });
+      // 2. Get location
+      Position pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
-      if (granted && _serviceEnabled) {
-        final pos = await Geolocator.getCurrentPosition(
-          // ignore: deprecated_member_use
-          desiredAccuracy: LocationAccuracy.high,
-        );
-        if (!mounted) return;
-        setState(() {
-          _currentPosition = LatLng(pos.latitude, pos.longitude);
-        });
+      _currentPosition = LatLng(pos.latitude, pos.longitude);
+      _locationLoaded = true;
 
-        if (_mapController != null) {
-          _animateTo(_currentPosition!, zoom: _kUserZoom);
+      if (mounted) {
+        setState(() {});
+        // Animate only if map is ready and animation hasn't been done
+        if (_mapReady && !_animationDone) {
+          _animationDone = true;
+          await _animateTo(_currentPosition!);
         }
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
+      debugPrint("Location error: $e");
     }
   }
 
-  // Use Geolocator for permission request (keeps previous logic)
-  Future<bool> _handleLocationPermission() async {
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission denied')),
-        );
-      }
-      return false;
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location permissions are permanently denied. Open settings to enable.',
-            ),
-          ),
-        );
-      }
-      return false;
-    }
-
-    return true;
+  // -------------------------
+  // CAMERA ANIMATION
+  // -------------------------
+  Future<void> _animateTo(LatLng target) async {
+    await _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: target, zoom: _userZoom),
+      ),
+    );
   }
 
-  Future<void> _animateTo(LatLng target, {double zoom = _kUserZoom}) async {
-    try {
-      await _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: target, zoom: zoom),
-        ),
-      );
-    } catch (_) {}
-  }
-
-  void _onMapCreated(GoogleMapController controller) {
-    _mapController = controller;
-    // if we already have user location, animate to it
-    if (_currentPosition != null) {
-      _animateTo(_currentPosition!, zoom: _kUserZoom);
-    }
-  }
-
-  // Called when user taps the my-location button
+  // -------------------------
+  // MY LOCATION BUTTON (FAST)
+  // -------------------------
   Future<void> _onMyLocationPressed() async {
-    // If service already enabled and permission granted -> animate to current position
-    if (_serviceEnabled && _permissionGranted && _currentPosition != null) {
-      _animateTo(_currentPosition!, zoom: _kUserZoom);
+    if (!_permissionGranted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Enable location permission")),
+      );
       return;
     }
 
-    // Otherwise show native enable-GPS dialog
+    if (_currentPosition != null) {
+      // Instant response
+      _animateTo(_currentPosition!);
+      return;
+    }
+
+    // If location not yet loaded → fetch quickly
     try {
-      bool enabled = await _locationService
-          .requestService(); // shows native dialog on Android
-      if (!enabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('GPS not enabled')));
-        }
-        return;
-      }
+      Position pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
 
-      // If user enabled GPS, re-init permissions and fetch location
-      await _initLocationAndMap();
-
-      if (_currentPosition != null) {
-        _animateTo(_currentPosition!, zoom: _kUserZoom);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not get location')),
-          );
-        }
+      _currentPosition = LatLng(pos.latitude, pos.longitude);
+      if (mounted) {
+        setState(() {});
+        _animateTo(_currentPosition!);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error enabling GPS: $e')));
-      }
+      debugPrint("Location fetch error: $e");
     }
   }
 
+  // -------------------------
+  // MAIN UI
+  // -------------------------
   @override
   Widget build(BuildContext context) {
-    final initialTarget = _currentPosition ?? _kDefaultCenter;
-    final initialZoom = _currentPosition == null ? _kDefaultZoom : _kUserZoom;
+    final initialLatLng = _currentPosition ?? _kKozhikode;
+    final initialZoom = _currentPosition == null ? _defaultZoom : _userZoom;
 
     return Scaffold(
-      body: _error != null
-          ? Center(child: Text('Error: $_error'))
-          : Stack(
-              children: [
-                GoogleMap(
-                  mapType: MapType.satellite,
-                  initialCameraPosition: CameraPosition(
-                    target: initialTarget,
-                    zoom: initialZoom,
-                  ),
-                  myLocationEnabled: _permissionGranted,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  onMapCreated: _onMapCreated,
-                ),
-                Positioned(
-                  bottom: 30,
-                  right: 15,
-                  child: FloatingActionButton(
-                    onPressed: _onMyLocationPressed,
-                    backgroundColor: Colors.white,
-                    child: const Icon(Icons.my_location, color: Colors.blue),
-                  ),
-                ),
-              ],
+      body: Stack(
+        children: [
+          GoogleMap(
+            mapType: MapType.normal,
+            myLocationEnabled: _permissionGranted,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            initialCameraPosition: CameraPosition(
+              target: initialLatLng,
+              zoom: initialZoom,
             ),
+            onMapCreated: (controller) {
+              _mapController = controller;
+              _mapReady = true;
+
+              // Animate only once
+              if (_locationLoaded &&
+                  _currentPosition != null &&
+                  !_animationDone) {
+                _animationDone = true;
+                _animateTo(_currentPosition!);
+              }
+            },
+          ),
+
+          // Floating my location button
+          Positioned(
+            bottom: 30,
+            right: 15,
+            child: FloatingActionButton(
+              onPressed: _onMyLocationPressed,
+              shape: const CircleBorder(),
+              backgroundColor: Colors.white,
+              child: const Icon(Icons.my_location, color: Colors.blue),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
