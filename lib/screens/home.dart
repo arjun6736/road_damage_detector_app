@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../services/road_segment_service.dart';
+import '../models/road_segment.dart';
+
 class Home extends StatefulWidget {
   const Home({super.key});
 
@@ -18,10 +21,17 @@ class _HomeState extends State<Home> {
   GoogleMapController? _mapController;
   LatLng? _currentPosition;
 
-  bool _locationLoaded = false;
   bool _permissionGranted = false;
   bool _mapReady = false;
-  bool _animationDone = false; // Prevent duplicate animations
+  bool _animationDone = false;
+
+  double _currentZoom = _defaultZoom;
+  LatLng _mapCenter = _kKozhikode;
+
+  final RoadSegmentService _service = RoadSegmentService();
+  final Set<Polyline> _polylines = {};
+
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -31,53 +41,40 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
 
   // -------------------------
-  // FAST LOCATION INITIALIZER
+  // LOCATION
   // -------------------------
   Future<void> _initLocation() async {
-    try {
-      // 1. Check permission
-      LocationPermission perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-
-      if (perm == LocationPermission.deniedForever) {
-        if (mounted) {
-          setState(() => _permissionGranted = false);
-        }
-        return;
-      }
-
-      _permissionGranted = true;
-
-      // 2. Get location
-      Position pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      _currentPosition = LatLng(pos.latitude, pos.longitude);
-      _locationLoaded = true;
-
-      if (mounted) {
-        setState(() {});
-        // Animate only if map is ready and animation hasn't been done
-        if (_mapReady && !_animationDone) {
-          _animationDone = true;
-          await _animateTo(_currentPosition!);
-        }
-      }
-    } catch (e) {
-      debugPrint("Location error: $e");
+    LocationPermission perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
     }
+
+    if (perm == LocationPermission.deniedForever) return;
+
+    _permissionGranted = true;
+
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    _currentPosition = LatLng(pos.latitude, pos.longitude);
+
+    if (_mapReady && !_animationDone) {
+      _animationDone = true;
+      _animateTo(_currentPosition!);
+    }
+
+    if (mounted) setState(() {});
   }
 
   // -------------------------
-  // CAMERA ANIMATION
+  // CAMERA
   // -------------------------
   Future<void> _animateTo(LatLng target) async {
     await _mapController?.animateCamera(
@@ -88,84 +85,98 @@ class _HomeState extends State<Home> {
   }
 
   // -------------------------
-  // MY LOCATION BUTTON (FAST)
+  // API FETCH
   // -------------------------
-  Future<void> _onMyLocationPressed() async {
-    if (!_permissionGranted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Enable location permission")),
-      );
-      return;
-    }
-
-    if (_currentPosition != null) {
-      // Instant response
-      _animateTo(_currentPosition!);
-      return;
-    }
-
-    // If location not yet loaded → fetch quickly
-    try {
-      Position pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      );
-
-      _currentPosition = LatLng(pos.latitude, pos.longitude);
-      if (mounted) {
-        setState(() {});
-        _animateTo(_currentPosition!);
+  void _fetchSegments() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () async {
+      try {
+        final segments = await _service.fetchSegments(
+          latitude: _mapCenter.latitude,
+          longitude: _mapCenter.longitude,
+          zoom: _currentZoom.round(),
+        );
+        _drawPolylines(segments);
+      } catch (e) {
+        debugPrint("API error: $e");
       }
-    } catch (e) {
-      debugPrint("Location fetch error: $e");
+    });
+  }
+
+  // -------------------------
+  // DRAW POLYLINES
+  // -------------------------
+  void _drawPolylines(List<RoadSegment> segments) {
+    final polylines = segments.map((segment) {
+      return Polyline(
+        polylineId: PolylineId('segment_${segment.id}'),
+        points: segment.points,
+        width: 6,
+        color: _severityColor(segment.severity),
+        geodesic: true,
+      );
+    }).toSet();
+
+    if (!mounted) return;
+
+    setState(() {
+      _polylines
+        ..clear()
+        ..addAll(polylines);
+    });
+  }
+
+  Color _severityColor(String severity) {
+    switch (severity) {
+      case 'high':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      default:
+        return Colors.yellow;
     }
   }
 
   // -------------------------
-  // MAIN UI
+  // UI
   // -------------------------
   @override
   Widget build(BuildContext context) {
-    final initialLatLng = _currentPosition ?? _kKozhikode;
+    final initialTarget = _currentPosition ?? _kKozhikode;
     final initialZoom = _currentPosition == null ? _defaultZoom : _userZoom;
 
     return Scaffold(
-      body: Stack(
-        children: [
-          GoogleMap(
-            mapType: MapType.normal,
-            myLocationEnabled: _permissionGranted,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            initialCameraPosition: CameraPosition(
-              target: initialLatLng,
-              zoom: initialZoom,
-            ),
-            onMapCreated: (controller) {
-              _mapController = controller;
-              _mapReady = true;
-
-              // Animate only once
-              if (_locationLoaded &&
-                  _currentPosition != null &&
-                  !_animationDone) {
-                _animationDone = true;
-                _animateTo(_currentPosition!);
-              }
-            },
-          ),
-
-          // Floating my location button
-          Positioned(
-            bottom: 30,
-            right: 15,
-            child: FloatingActionButton(
-              onPressed: _onMyLocationPressed,
-              shape: const CircleBorder(),
-              backgroundColor: Colors.white,
-              child: const Icon(Icons.my_location, color: Colors.blue),
-            ),
-          ),
-        ],
+      body: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: initialTarget,
+          zoom: initialZoom,
+        ),
+        myLocationEnabled: _permissionGranted,
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+        polylines: _polylines,
+        onMapCreated: (controller) {
+          _mapController = controller;
+          _mapReady = true;
+          if (_currentPosition != null && !_animationDone) {
+            _animationDone = true;
+            _animateTo(_currentPosition!);
+          }
+        },
+        onCameraMove: (position) {
+          _currentZoom = position.zoom;
+          _mapCenter = position.target;
+        },
+        onCameraIdle: _fetchSegments,
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.white,
+        child: const Icon(Icons.my_location, color: Colors.blue),
+        onPressed: () {
+          if (_currentPosition != null) {
+            _animateTo(_currentPosition!);
+          }
+        },
       ),
     );
   }

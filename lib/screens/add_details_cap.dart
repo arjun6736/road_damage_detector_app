@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:async';
 import 'dart:io';
 
@@ -39,84 +41,87 @@ class _AddDetailsPageState extends State<AddDetailsPage> {
     super.dispose();
   }
 
+  /* -------------------- STATUS BANNER -------------------- */
+
+  void _showStatusBanner({required String message, required Color color}) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        content: Center(
+          child: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /* -------------------- FAILURE (DJANGO UNREACHABLE) -------------------- */
+
+  Future<void> _handleNetworkFailure() async {
+    if (!mounted) return;
+
+    _showStatusBanner(message: 'Report submission failed', color: Colors.red);
+
+    await Future.delayed(const Duration(seconds: 2));
+    context.pop({'status': 'network_error'});
+    context.pop();
+  }
+
+  /* -------------------- SUBMIT LOGIC -------------------- */
+
   Future<void> _saveDetails() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    final title = _titleController.text.trim();
-    final description = _descController.text.trim();
 
     setState(() => _isSubmitting = true);
 
     try {
-      // sendReport should return a http.Response-like object
-      final response = await _reportService
+      // If this line returns ANY response → Django RECEIVED the report
+      await _reportService
           .sendReport(
             firebaseUid: widget.firebaseUid,
             imageFile: widget.imageFile,
-            title: title,
-            description: description,
+            title: _titleController.text.trim(),
+            description: _descController.text.trim(),
             gps: widget.gps,
             time: widget.time,
           )
           .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Report sent successfully!')),
-          );
-        }
+      // ✅ Django reached → SUCCESS
+      if (!mounted) return;
 
-        // small delay so user sees the success message
-        await Future.delayed(const Duration(milliseconds: 500));
+      _showStatusBanner(
+        message: 'Report submitted successfully',
+        color: Colors.green,
+      );
 
-        // return success result to previous route, then pop one more level (capture)
-        context.pop({
-          'status': 'success',
-          'title': title,
-          'description': description,
-          'time': widget.time,
-          'gps': widget.gps,
-          'imagePath': widget.imageFile.path,
-        });
-        context.pop();
-      } else {
-        final msg = 'Upload failed: ${response.statusCode}';
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(msg)));
-        }
-
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        context.pop({'status': 'error', 'message': msg});
-        context.pop();
-      }
+      await Future.delayed(const Duration(seconds: 2));
+      context.pop({'status': 'success'});
+      context.pop();
     } on TimeoutException {
-      const msg =
-          'Request timed out. Please check your connection and try again.';
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text(msg)));
-      }
-      // return timeout result
-      context.pop({'status': 'timeout', 'message': msg});
-      context.pop();
-    } catch (e) {
-      final msg = 'Error: $e';
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-      }
-      context.pop({'status': 'error', 'message': msg});
-      context.pop();
+      // ❌ Server unreachable
+      await _handleNetworkFailure();
+    } on SocketException {
+      // ❌ No internet / connection refused
+      await _handleNetworkFailure();
+    } catch (_) {
+      // ❌ Any transport-level failure
+      await _handleNetworkFailure();
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
+
+  /* -------------------- UI -------------------- */
 
   @override
   Widget build(BuildContext context) {
@@ -128,11 +133,18 @@ class _AddDetailsPageState extends State<AddDetailsPage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Image.file(widget.imageFile, height: 200, fit: BoxFit.cover),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  widget.imageFile,
+                  height: 200,
+                  fit: BoxFit.cover,
+                ),
+              ),
               const SizedBox(height: 12),
               Text('Time: ${widget.time}'),
               Text('GPS: ${widget.gps}'),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               AppInputField(
                 controller: _titleController,
                 label: 'Title',
@@ -148,7 +160,7 @@ class _AddDetailsPageState extends State<AddDetailsPage> {
                     ? 'Enter a description'
                     : null,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               SizedBox(
                 height: 48,
                 child: ElevatedButton.icon(
@@ -162,7 +174,7 @@ class _AddDetailsPageState extends State<AddDetailsPage> {
                             color: Colors.white,
                           ),
                         )
-                      : const Icon(Icons.upload),
+                      : const Icon(Icons.cloud_upload),
                   label: Text(_isSubmitting ? 'Uploading...' : 'Submit Report'),
                 ),
               ),

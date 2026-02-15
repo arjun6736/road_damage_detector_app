@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:routefixer/app_theme.dart';
 import 'package:routefixer/routes.dart';
 import 'package:routefixer/services/cameraservice.dart';
+import 'package:routefixer/services/fcm_service.dart';
 
 List<CameraDescription>? cameras; // global list of cameras
 
@@ -15,7 +16,7 @@ Future<void> main() async {
 
   // Initialize Firebase
   await Firebase.initializeApp();
-
+  await FCMService.init();
   // Initialize cameras
   cameras = await availableCameras();
   CameraService().setCameras(cameras!);

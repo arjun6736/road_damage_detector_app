@@ -1,22 +1,9 @@
+// pages/notifications_page.dart
 import 'package:flutter/material.dart';
-
-class NotificationItem {
-  final String id;
-  final String title;
-  final String subtitle;
-  final DateTime time;
-  final IconData icon;
-  bool read;
-
-  NotificationItem({
-    required this.id,
-    required this.title,
-    required this.subtitle,
-    required this.time,
-    required this.icon,
-    this.read = false,
-  });
-}
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:routefixer/services/notification_service.dart';
+import 'dart:async';
+import 'package:routefixer/services/fcm_service.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -29,49 +16,75 @@ enum NotiFilter { all, unread, updates, alerts }
 
 class _NotificationsPageState extends State<NotificationsPage> {
   NotiFilter _filter = NotiFilter.all;
+  final NotificationService _notificationService = NotificationService();
+  List<NotificationModel> _notifications = [];
+  bool _isLoading = true;
+  String? _error;
+  StreamSubscription? _notificationSubscription;
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
 
-  final List<NotificationItem> _items = [
-    NotificationItem(
-      id: '1',
-      title: 'Road damage reported',
-      subtitle: 'Your report was submitted successfully.',
-      time: DateTime.now().subtract(const Duration(minutes: 8)),
-      icon: Icons.check_circle,
-      read: false,
-    ),
-    NotificationItem(
-      id: '2',
-      title: 'Verification needed',
-      subtitle: 'Add a short description to finish the report.',
-      time: DateTime.now().subtract(const Duration(hours: 2)),
-      icon: Icons.verified_user,
-      read: false,
-    ),
-    NotificationItem(
-      id: '3',
-      title: 'New app update',
-      subtitle: 'Version 1.2.0 brings performance improvements.',
-      time: DateTime.now().subtract(const Duration(days: 1, hours: 3)),
-      icon: Icons.system_update_alt,
-      read: true,
-    ),
-  ];
-
-  Future<void> _refresh() async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    setState(() {});
+    _notificationSubscription = FCMService.notificationStream.listen((_) {
+      _loadNotifications();
+    });
   }
 
-  List<NotificationItem> get _filtered {
-    return _items.where((n) {
+  @override
+  void dispose() {
+    _notificationSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadNotifications() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() {
+          _error = 'Not authenticated';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final notifications = await _notificationService.getNotifications(
+        user.uid,
+      );
+      if (mounted) {
+        setState(() {
+          _notifications = notifications;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refresh() async {
+    await _loadNotifications();
+  }
+
+  List<NotificationModel> get _filtered {
+    return _notifications.where((n) {
       switch (_filter) {
         case NotiFilter.unread:
-          return !n.read;
+          return !n.isRead;
         case NotiFilter.updates:
-          return n.icon == Icons.system_update_alt;
+          return n.type == 'UPDATE';
         case NotiFilter.alerts:
-          return n.icon == Icons.warning_amber_rounded;
+          return n.type == 'ALERT' || n.type == 'ADMIN';
         case NotiFilter.all:
         default:
           return true;
@@ -79,8 +92,115 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }).toList();
   }
 
-  void _toggleRead(NotificationItem n) {
-    setState(() => n.read = !n.read);
+  Future<void> _toggleRead(NotificationModel n) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Optimistic update
+    setState(() {
+      final index = _notifications.indexWhere((item) => item.id == n.id);
+      if (index != -1) {
+        _notifications[index] = NotificationModel(
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          isRead: !n.isRead,
+          createdAt: n.createdAt,
+        );
+      }
+    });
+
+    // Update on server
+    if (!n.isRead) {
+      final success = await _notificationService.markAsRead(user.uid, n.id);
+      if (!success && mounted) {
+        // Revert if failed
+        setState(() {
+          final index = _notifications.indexWhere((item) => item.id == n.id);
+          if (index != -1) {
+            _notifications[index] = NotificationModel(
+              id: n.id,
+              title: n.title,
+              message: n.message,
+              type: n.type,
+              isRead: n.isRead,
+              createdAt: n.createdAt,
+            );
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _markAllAsRead() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final success = await _notificationService.markAllAsRead(user.uid);
+    if (success) {
+      await _loadNotifications();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('All notifications marked as read'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to mark all as read'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteNotification(NotificationModel n) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Remove from list immediately (optimistic)
+    setState(() {
+      _notifications.removeWhere((item) => item.id == n.id);
+    });
+
+    // Delete from server
+    final success = await _notificationService.deleteNotification(
+      user.uid,
+      n.id,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'Notification deleted' : 'Failed to delete'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
+
+    // Reload if failed
+    if (!success) {
+      await _loadNotifications();
+    }
+  }
+
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'ADMIN':
+        return Icons.admin_panel_settings;
+      case 'UPDATE':
+        return Icons.system_update_alt;
+      case 'ALERT':
+        return Icons.warning_amber_rounded;
+      case 'REPORT':
+        return Icons.check_circle;
+      default:
+        return Icons.notifications;
+    }
   }
 
   @override
@@ -95,11 +215,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         actions: [
           IconButton(
             tooltip: 'Mark all as read',
-            onPressed: () => setState(() {
-              for (final n in _items) {
-                n.read = true;
-              }
-            }),
+            onPressed: _notifications.any((n) => !n.isRead)
+                ? _markAllAsRead
+                : null,
             icon: const Icon(Icons.done_all),
           ),
         ],
@@ -109,65 +227,119 @@ class _NotificationsPageState extends State<NotificationsPage> {
           // Filter row
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Wrap(
-              spacing: 8,
-              children: [
-                _filterChip('All', NotiFilter.all),
-                _filterChip('Unread', NotiFilter.unread),
-                _filterChip('Updates', NotiFilter.updates),
-                _filterChip('Alerts', NotiFilter.alerts),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _filterChip('All', NotiFilter.all),
+                  const SizedBox(width: 8),
+                  _filterChip('Unread', NotiFilter.unread),
+                  const SizedBox(width: 8),
+                  _filterChip('Updates', NotiFilter.updates),
+                  const SizedBox(width: 8),
+                  _filterChip('Alerts', NotiFilter.alerts),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 4),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: isEmpty
-                  ? ListView(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 96),
-                          child: _EmptyState(
-                            title: 'You’re all caught up!',
-                            subtitle: 'New notifications will appear here.',
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: Colors.red,
                           ),
-                        ),
-                      ],
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      itemCount: _filtered.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final n = _filtered[index];
-                        return Dismissible(
-                          key: ValueKey(n.id),
-                          direction: DismissDirection.endToStart,
-                          background: _DismissBg(
-                            icon: Icons.delete_outline,
-                            label: 'Delete',
-                            color: theme.colorScheme.errorContainer,
-                            fg: theme.colorScheme.onErrorContainer,
+                          const SizedBox(height: 16),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium,
                           ),
-                          onDismissed: (_) {
-                            setState(
-                              () => _items.removeWhere((e) => e.id == n.id),
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Notification deleted'),
-                              ),
-                            );
-                          },
-                          child: _NotificationCard(
-                            item: n,
-                            onTap: () => _toggleRead(n),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _loadNotifications,
+                            child: const Text('Retry'),
                           ),
-                        );
-                      },
+                        ],
+                      ),
                     ),
-            ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: isEmpty
+                        ? ListView(
+                            children: const [
+                              Padding(
+                                padding: EdgeInsets.only(top: 96),
+                                child: _EmptyState(
+                                  title: 'You\'re all caught up!',
+                                  subtitle:
+                                      'New notifications will appear here.',
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: _filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              final n = _filtered[index];
+                              return Dismissible(
+                                key: ValueKey(n.id),
+                                direction: DismissDirection.endToStart,
+                                background: _DismissBg(
+                                  icon: Icons.delete_outline,
+                                  label: 'Delete',
+                                  color: theme.colorScheme.errorContainer,
+                                  fg: theme.colorScheme.onErrorContainer,
+                                ),
+                                confirmDismiss: (direction) async {
+                                  return await showDialog(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('Delete Notification'),
+                                      content: const Text(
+                                        'Are you sure you want to delete this notification?',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context, true),
+                                          child: const Text(
+                                            'Delete',
+                                            style: TextStyle(color: Colors.red),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                                onDismissed: (_) => _deleteNotification(n),
+                                child: _NotificationCard(
+                                  notification: n,
+                                  icon: _getIconForType(n.type),
+                                  onTap: () => _toggleRead(n),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
           ),
         ],
       ),
@@ -187,10 +359,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
 }
 
 class _NotificationCard extends StatelessWidget {
-  final NotificationItem item;
+  final NotificationModel notification;
+  final IconData icon;
   final VoidCallback onTap;
 
-  const _NotificationCard({required this.item, required this.onTap});
+  const _NotificationCard({
+    required this.notification,
+    required this.icon,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +395,7 @@ class _NotificationCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _IconBadge(icon: item.icon, unread: !item.read),
+              _IconBadge(icon: icon, unread: !notification.isRead),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -228,11 +405,11 @@ class _NotificationCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            item.title,
+                            notification.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: item.read
+                              fontWeight: notification.isRead
                                   ? FontWeight.w500
                                   : FontWeight.w700,
                             ),
@@ -240,7 +417,7 @@ class _NotificationCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _timeAgo(item.time),
+                          _timeAgo(notification.createdAt),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: onSurface.withOpacity(0.6),
                           ),
@@ -249,7 +426,7 @@ class _NotificationCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      item.subtitle,
+                      notification.message,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -262,15 +439,29 @@ class _NotificationCard extends StatelessWidget {
                       children: [
                         TextButton(
                           onPressed: onTap,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           child: Text(
-                            item.read ? 'Mark as unread' : 'Mark as read',
+                            notification.isRead
+                                ? 'Mark as unread'
+                                : 'Mark as read',
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
                         const Spacer(),
-                        IconButton(
-                          tooltip: 'More',
-                          onPressed: () {},
-                          icon: const Icon(Icons.more_horiz),
+                        Chip(
+                          label: Text(
+                            notification.type,
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
                         ),
                       ],
                     ),
@@ -360,7 +551,10 @@ class _DismissBg extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          Text(label, style: TextStyle(color: fg)),
+          Text(
+            label,
+            style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(width: 8),
           Icon(icon, color: fg),
         ],
@@ -382,7 +576,7 @@ class _EmptyState extends StatelessWidget {
         Icon(
           Icons.notifications_none,
           size: 64,
-          color: theme.colorScheme.primary,
+          color: theme.colorScheme.primary.withOpacity(0.5),
         ),
         const SizedBox(height: 12),
         Text(title, style: theme.textTheme.titleMedium),

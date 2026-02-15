@@ -5,6 +5,7 @@ import 'package:routefixer/main.dart';
 import 'package:routefixer/navigation/main_page.dart';
 import 'package:routefixer/screens/add_details_cap.dart';
 import 'package:routefixer/screens/admin_login.dart';
+import 'package:routefixer/screens/repoartscreen.dart';
 import 'package:routefixer/screens/resetpassword.dart';
 import 'package:routefixer/screens/user_login.dart';
 import 'package:routefixer/screens/user_signup.dart';
@@ -84,6 +85,11 @@ final GoRouter router = GoRouter(
           firebaseUid: FirebaseAuth.instance.currentUser!.uid,
         );
       },
+    ),
+    GoRoute(
+      path: '/reports',
+      name: 'reports',
+      builder: (context, state) => const Repoartscreen(),
     ),
   ],
 );

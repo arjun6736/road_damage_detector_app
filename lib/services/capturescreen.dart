@@ -1,11 +1,10 @@
-// ignore_for_file: use_build_context_synchronously
-import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:location/location.dart';
-import '../services/cameraservice.dart';
+import 'package:routefixer/services/cameraservice.dart';
+// REPLACE with your actual path
 
 class CapturePage extends StatefulWidget {
   final CameraDescription camera;
@@ -15,14 +14,16 @@ class CapturePage extends StatefulWidget {
   State<CapturePage> createState() => _CapturePageState();
 }
 
-class _CapturePageState extends State<CapturePage> {
+class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   CameraController? controller;
-  bool loading = true;
-  bool takingPicture = false;
+  bool isCameraInitialized = false;
+  bool isCapturing = false;
+  String? statusMessage;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initCamera();
   }
 
@@ -30,92 +31,187 @@ class _CapturePageState extends State<CapturePage> {
     try {
       await CameraService().init(widget.camera);
       controller = CameraService().controller;
-      if (mounted) setState(() => loading = false);
+      if (mounted) setState(() => isCameraInitialized = true);
     } catch (e) {
-      debugPrint("Camera init failed: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Camera error: $e")));
-      }
+      debugPrint("Camera Error: $e");
     }
   }
 
   @override
-  void dispose() {
-    CameraService().dispose();
-    super.dispose();
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final CameraController? cameraController = controller;
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return;
+    }
+    if (state == AppLifecycleState.inactive) {
+      cameraController.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
+    }
   }
 
-  Future<void> _capture() async {
-    if (takingPicture) return;
-    takingPicture = true;
-    setState(() {});
+  Future<void> _handleCapture() async {
+    if (isCapturing) return;
+
+    setState(() {
+      isCapturing = true;
+      statusMessage = "Acquiring GPS...";
+    });
 
     try {
-      // Location permission
-      if (!await _checkGPS()) return;
+      // 1. Check GPS
+      if (!await _checkGPS()) {
+        throw Exception("GPS disabled or permission denied");
+      }
 
-      final picture = await controller!.takePicture();
+      setState(() => statusMessage = "Processing Image...");
+
+      // 2. Capture & Process (Returns 640x640 file)
+      final processedFile = await CameraService().captureYoloReady();
+
+      // 3. Get Metadata
+      setState(() => statusMessage = "Finalizing...");
       final pos = await Geolocator.getCurrentPosition();
       final time = DateTime.now().toIso8601String();
 
-      context.pushNamed(
-        'addDetails',
-        extra: {
-          "imageFile": File(picture.path),
-          "gps": "${pos.latitude}, ${pos.longitude}",
-          "time": time,
-        },
-      );
+      // 4. Navigate to details page
+      if (mounted) {
+        context.pushNamed(
+          'addDetails', // Ensure this route exists in your GoRouter config
+          extra: {
+            "imageFile": processedFile,
+            "gps": "${pos.latitude}, ${pos.longitude}",
+            "time": time,
+          },
+        );
+      }
     } catch (e) {
-      debugPrint("Capture error: $e");
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+      );
     } finally {
-      takingPicture = false;
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          isCapturing = false;
+          statusMessage = null;
+        });
+      }
     }
   }
 
   Future<bool> _checkGPS() async {
-    Location location = Location();
-
-    bool enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) {
-      final req = await location.requestService();
-      if (!req) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Enable GPS to continue")));
-        return false;
-      }
+    final location = Location();
+    bool serviceEnabled = await location.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await location.requestService();
+      if (!serviceEnabled) return false;
     }
 
-    LocationPermission perm = await Geolocator.checkPermission();
+    var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
       if (perm == LocationPermission.denied) return false;
     }
     if (perm == LocationPermission.deniedForever) return false;
-
     return true;
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    CameraService().dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (!isCameraInitialized || controller == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: Colors.amber)),
+      );
     }
 
+    final size = MediaQuery.of(context).size;
+    // ignore: unused_local_variable
+    final deviceRatio = size.width / size.height;
+
+    // Calculate the square size based on width
+    final double squareSize = size.width;
+
     return Scaffold(
-      body: CameraPreview(controller!),
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text("Capture Road Damage"),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              const SizedBox(height: 20),
+
+              // --- SQUARE VIEWFINDER ---
+              // This container clips the camera preview to a perfect square.
+              Center(
+                child: Container(
+                  width: squareSize,
+                  height: squareSize,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.amber, width: 3),
+                  ),
+                  child: ClipRect(
+                    child: OverflowBox(
+                      alignment: Alignment.center,
+                      child: FittedBox(
+                        fit: BoxFit.cover, // Ensures center crop visual
+                        child: SizedBox(
+                          width: squareSize,
+                          // This height calculation ensures the preview aspect ratio is maintained
+                          // so the FittedBox can crop it correctly.
+                          height: squareSize * controller!.value.aspectRatio,
+                          child: CameraPreview(controller!),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // --- INSTRUCTIONS ---
+              Expanded(
+                child: Center(
+                  child: isCapturing
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(
+                              color: Colors.amber,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              statusMessage ?? "Processing...",
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          ],
+                        )
+                      : const Text(
+                          "Align damage inside the square",
+                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: FloatingActionButton(
-        onPressed: takingPicture ? null : _capture,
-        child: takingPicture
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Icon(Icons.camera_alt),
+        onPressed: isCapturing ? null : _handleCapture,
+        backgroundColor: isCapturing ? Colors.grey[800] : Colors.white,
+        child: const Icon(Icons.camera_alt, color: Colors.black, size: 32),
       ),
     );
   }
