@@ -6,7 +6,9 @@ import 'package:routefixer/services/cameraservice.dart';
 import 'package:routefixer/services/report_service.dart';
 
 class Repoartscreen extends StatefulWidget {
-  const Repoartscreen({super.key});
+  final int? segmentId;
+
+  const Repoartscreen({super.key, this.segmentId});
 
   @override
   State<Repoartscreen> createState() => _RepoartscreenState();
@@ -16,8 +18,10 @@ class _RepoartscreenState extends State<Repoartscreen> {
   List<dynamic> reports = [];
   bool loading = true;
   String? firebaseUid;
-
   String selectedStatus = "All";
+
+  // CHANGE THIS TO YOUR ACTUAL DOMAIN
+  final String imageBaseUrl = "https://routefixer.dpdns.org";
 
   final List<String> statusFilters = [
     "All",
@@ -28,10 +32,16 @@ class _RepoartscreenState extends State<Repoartscreen> {
     "Resolved",
   ];
 
+  final ReportService reportService = ReportService();
+
   @override
   void initState() {
     super.initState();
-    loadUser();
+    if (widget.segmentId != null) {
+      fetchSegmentReports(widget.segmentId!);
+    } else {
+      loadUser();
+    }
   }
 
   Future<void> loadUser() async {
@@ -40,28 +50,48 @@ class _RepoartscreenState extends State<Repoartscreen> {
       setState(() => loading = false);
       return;
     }
-    await fetchReports();
+    await fetchUserReports();
   }
 
-  Future<void> fetchReports() async {
+  Future<void> fetchUserReports() async {
     try {
-      final data = await ReportService().getReports(firebaseUid!);
-      setState(() {
-        reports = data;
-        loading = false;
-      });
+      final data = await reportService.getReports(firebaseUid!);
+      if (mounted) {
+        setState(() {
+          reports = data;
+          loading = false;
+        });
+      }
     } catch (e) {
-      debugPrint("Error fetching reports: $e");
-      setState(() => loading = false);
+      debugPrint("Error fetching user reports: $e");
+      if (mounted) setState(() => loading = false);
     }
   }
 
-  // 🔁 Pull to refresh
-  Future<void> _onRefresh() async {
-    await fetchReports();
+  Future<void> fetchSegmentReports(int segmentId) async {
+    try {
+      final data = await reportService.getReportsBySegment(segmentId);
+      if (mounted) {
+        setState(() {
+          reports = data;
+          loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching segment reports: $e");
+      if (mounted) setState(() => loading = false);
+    }
   }
 
-  // 🔍 Filtered list
+  Future<void> _onRefresh() async {
+    setState(() => loading = true);
+    if (widget.segmentId != null) {
+      await fetchSegmentReports(widget.segmentId!);
+    } else {
+      await fetchUserReports();
+    }
+  }
+
   List<dynamic> get filteredReports {
     if (selectedStatus == "All") return reports;
     return reports
@@ -73,14 +103,16 @@ class _RepoartscreenState extends State<Repoartscreen> {
         .toList();
   }
 
-  Color _statusColor(String status) {
-    switch (status.toLowerCase()) {
+  // --- STATUS COLORS (Blue/Indigo Theme) ---
+  Color _statusColor(String? status) {
+    switch (status?.toLowerCase()) {
       case "pending":
         return Colors.orange;
       case "verified":
         return Colors.blue;
       case "in process":
-        return Colors.purple;
+      case "in-process":
+        return Colors.indigo; // Deep Blue
       case "rejected":
         return Colors.red;
       case "resolved":
@@ -90,61 +122,229 @@ class _RepoartscreenState extends State<Repoartscreen> {
     }
   }
 
+  String _formatDate(String? isoString) {
+    if (isoString == null || isoString.isEmpty) return "N/A";
+    try {
+      final DateTime dt = DateTime.parse(isoString);
+      return "${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (e) {
+      return isoString;
+    }
+  }
+
+  // =====================================================
+  // DETAILS DIALOG (Shows ALL Data)
+  // =====================================================
   void _showReportDetails(BuildContext context, dynamic report) {
+    String? imageUrl = report["image_url"];
+    if (imageUrl != null &&
+        imageUrl.isNotEmpty &&
+        !imageUrl.startsWith("http")) {
+      imageUrl = "$imageBaseUrl$imageUrl";
+    }
+
     showDialog(
       context: context,
       builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child:
-                      report["image_url"] != null &&
-                          report["image_url"].toString().isNotEmpty
-                      ? Image.network(
-                          report["image_url"],
-                          height: 180,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          height: 180,
-                          color: Colors.grey.shade200,
-                          child: const Icon(
-                            Icons.image_not_supported,
-                            size: 60,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- IMAGE HEADER ---
+            if (imageUrl != null)
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                child: Image.network(
+                  imageUrl,
+                  height: 250,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 150,
+                    width: double.infinity,
+                    color: Colors.grey[200],
+                    child: const Center(
+                      child: Icon(
+                        Icons.broken_image,
+                        size: 40,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // --- DATA BODY ---
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header: Title + Status Badge
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            report["damage_type"] ?? "Report Details",
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor(
+                              report["status"],
+                            ).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _statusColor(report["status"]),
+                            ),
+                          ),
+                          child: Text(
+                            report["status"] ?? "Unknown",
+                            style: TextStyle(
+                              color: _statusColor(report["status"]),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 5),
+                    Text(
+                      "ID: ${report["id"]} • Segment: ${report["segment_id"] ?? "N/A"}",
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                    const Divider(height: 25),
+
+                    // Description
+                    const Text(
+                      "Description",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      report["description"] != null &&
+                              report["description"].toString().isNotEmpty
+                          ? report["description"]
+                          : "No description provided.",
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // --- ANALYSIS SECTION ---
+                    _buildSectionHeader("Analysis"),
+                    _buildDetailRow("Severity", report["severity"] ?? "Low"),
+                    _buildDetailRow(
+                      "AI Detected",
+                      report["ml_prediction"] ?? "Pending",
+                    ),
+                    _buildDetailRow(
+                      "Confidence",
+                      report["ml_confidence"] != null
+                          ? "${report["ml_confidence"]}%"
+                          : "N/A",
+                    ),
+
+                    const SizedBox(height: 15),
+
+                    // --- LOCATION SECTION ---
+                    _buildSectionHeader("Location"),
+                    if (report["road_name"] != null)
+                      _buildDetailRow("Road", report["road_name"]),
+                    if (report["locality"] != null)
+                      _buildDetailRow("Locality", report["locality"]),
+                    if (report["city"] != null)
+                      _buildDetailRow("City", report["city"]),
+                    _buildDetailRow(
+                      "GPS",
+                      "${report["latitude"] ?? "?"}, ${report["longitude"] ?? "?"}",
+                    ),
+
+                    const SizedBox(height: 15),
+
+                    // --- TIMESTAMPS SECTION ---
+                    _buildSectionHeader("Timeline"),
+                    _buildDetailRow(
+                      "Reported On",
+                      _formatDate(report["timestamp"]),
+                    ),
+                    _buildDetailRow(
+                      "Last Updated",
+                      _formatDate(report["updated_at"]),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  report["damage_type"],
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            // --- CLOSE BUTTON ---
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
                   ),
+                  child: const Text("Close"),
                 ),
-                const SizedBox(height: 8),
-                Text(report["description"] ?? "No description available"),
-                const SizedBox(height: 12),
-                Text("Status: ${report["status"]}"),
-                const SizedBox(height: 20),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text("Close"),
-                  ),
-                ),
-              ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              "$label:",
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.black54,
+              ),
             ),
           ),
-        ),
+          Expanded(child: Text(value)),
+        ],
       ),
     );
   }
@@ -152,115 +352,112 @@ class _RepoartscreenState extends State<Repoartscreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Reports"), centerTitle: true),
-
+      appBar: AppBar(
+        title: Text(
+          widget.segmentId != null ? "Segment Reports" : "My Reports",
+        ),
+        centerTitle: true,
+      ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // 🔘 Filter Chips
+                // STATUS FILTER CHIPS
                 SizedBox(
                   height: 50,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     children: statusFilters.map((status) {
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: ChoiceChip(
                           label: Text(status),
                           selected: selectedStatus == status,
-                          onSelected: (_) {
-                            setState(() => selectedStatus = status);
-                          },
+                          onSelected: (_) =>
+                              setState(() => selectedStatus = status),
                         ),
                       );
                     }).toList(),
                   ),
                 ),
 
-                const SizedBox(height: 8),
-
-                // 🔁 Swipe to refresh
+                // REPORT LIST
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _onRefresh,
                     child: filteredReports.isEmpty
-                        ? ListView(
-                            children: [
-                              SizedBox(height: 200),
-                              Center(child: Text("No Reports Found")),
-                            ],
-                          )
+                        ? const Center(child: Text("No Reports Found"))
                         : ListView.builder(
-                            padding: const EdgeInsets.all(15),
                             itemCount: filteredReports.length,
                             itemBuilder: (context, index) {
                               final report = filteredReports[index];
-                              return GestureDetector(
-                                onTap: () =>
-                                    _showReportDetails(context, report),
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 16),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.05),
-                                        blurRadius: 5,
-                                      ),
-                                    ],
+                              return Card(
+                                elevation: 1,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              report["damage_type"],
-                                              style: const TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: _statusColor(
-                                                report["status"],
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: Text(
-                                              report["status"],
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        report["description"] ??
-                                            "No description available",
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
+
+                                  // NO LEADING ICON
+                                  leading: null,
+
+                                  title: Text(
+                                    report["damage_type"] ?? "Unknown",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
                                   ),
+
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      report["description"] ?? "",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ),
+
+                                  // STATUS AT THE END
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _statusColor(
+                                        report["status"],
+                                      ).withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: _statusColor(
+                                          report["status"],
+                                        ).withOpacity(0.5),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      report["status"] ?? "Unknown",
+                                      style: TextStyle(
+                                        color: _statusColor(report["status"]),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+
+                                  onTap: () =>
+                                      _showReportDetails(context, report),
                                 ),
                               );
                             },
@@ -269,33 +466,22 @@ class _RepoartscreenState extends State<Repoartscreen> {
                 ),
               ],
             ),
-
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.white,
-        child: const Icon(Icons.add, color: Colors.black),
+        heroTag: "reportFAB",
         onPressed: () {
-          // 1. Access the 'cameras' list we just added
           final cams = CameraService().cameras;
-
-          // 2. Check if it's not empty
           if (cams.isNotEmpty) {
             context.pushNamed("capture", extra: cams.first);
           } else {
-            // Fallback: If list is empty, try fetching them dynamically (just in case main.dart didn't load them)
-            availableCameras().then((fetchedCams) {
-              if (fetchedCams.isNotEmpty) {
-                CameraService().setCameras(fetchedCams);
-                context.pushNamed("capture", extra: fetchedCams.first);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("No camera found on this device"),
-                  ),
-                );
+            availableCameras().then((cams) {
+              CameraService().setCameras(cams);
+              if (cams.isNotEmpty) {
+                context.pushNamed("capture", extra: cams.first);
               }
             });
           }
         },
+        child: const Icon(Icons.add),
       ),
     );
   }

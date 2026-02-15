@@ -23,7 +23,7 @@ class RoadSegment {
       roadName: json['road_name'] ?? '',
       locality: json['locality'] ?? '',
       city: json['city'] ?? '',
-      severity: json['severity'] ?? 'low', // ✅ SAFE DEFAULT
+      severity: json['max_severity'] ?? 'low', // ✅ SAFE DEFAULT
       points: _decodePolylineString(json['polyline_points']),
     );
   }

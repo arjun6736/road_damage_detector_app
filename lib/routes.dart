@@ -87,9 +87,15 @@ final GoRouter router = GoRouter(
       },
     ),
     GoRoute(
-      path: '/reports',
-      name: 'reports',
-      builder: (context, state) => const Repoartscreen(),
+      path: '/report',
+      builder: (context, state) {
+        // Check: Is 'extra' actually an integer?
+        // If not, we pass null so the screen safely defaults to 'User Mode'.
+        final Object? extra = state.extra;
+        final int? segmentId = extra is int ? extra : null;
+
+        return Repoartscreen(segmentId: segmentId);
+      },
     ),
   ],
 );

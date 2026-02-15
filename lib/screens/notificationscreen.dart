@@ -86,6 +86,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         case NotiFilter.alerts:
           return n.type == 'ALERT' || n.type == 'ADMIN';
         case NotiFilter.all:
+        // ignore: unreachable_switch_default
         default:
           return true;
       }
